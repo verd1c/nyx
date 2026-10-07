@@ -1,0 +1,16 @@
+# build
+build/
+out/
+cmake-build*/
+.cache/
+compile_commands.json
+__pycache__/
+*.pyc
+
+# editor
+.vscode/
+.idea/
+*.swp
+
+# design notes, kept local
+docs/

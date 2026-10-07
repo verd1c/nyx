@@ -1,0 +1,18 @@
+# Google C++ Style Guide.
+# Hand-aligned descriptor and encoder tables live inside // clang-format off/on.
+BasedOnStyle: Google
+Standard: c++20
+ColumnLimit: 100
+DerivePointerAlignment: false
+PointerAlignment: Left
+SeparateDefinitionBlocks: Always
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<[^/]*>$'
+    Priority: 1
+  - Regex: '^<.*>$'
+    Priority: 2
+  - Regex: '^"nyx/'
+    Priority: 3
+  - Regex: '.*'
+    Priority: 4
