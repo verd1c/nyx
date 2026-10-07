@@ -22,6 +22,8 @@ struct BlockState {
   std::vector<std::uint8_t> frame_reads;  // slots a shown value reads at entry
   std::vector<std::uint8_t> marked;       // per node
   std::vector<std::uint32_t> uses;        // per node, among marked consumers
+  std::vector<std::uint32_t> weight;      // per node, operators its inlined text spells
+  std::vector<std::uint8_t> split;        // per node, named because inlining it reads badly
 };
 
 class Lister {
@@ -104,6 +106,8 @@ class Lister {
       state.frame_reads.assign(block.frame_phis.size(), 0);
       state.marked.assign(block.nodes.size(), 0);
       state.uses.assign(block.nodes.size(), 0);
+      state.weight.assign(block.nodes.size(), 0);
+      state.split.assign(block.nodes.size(), 0);
     }
 
     return true;
@@ -350,6 +354,43 @@ class Lister {
     return true;
   }
 
+  // Inlining every single-use value turns a chain of rounds into one nested
+  // expression. When a value's inlined text would spell more than this many
+  // operators, its heaviest inlined input gets a name instead, so a chain
+  // breaks along its spine rather than mid-step. Inputs precede their users,
+  // so one forward pass sees every input's final weight. Named and Atom read
+  // slot_, so this runs only while printing.
+  static constexpr std::uint32_t kInlineOperators = 4;
+
+  bool Weigh(const SsaBlock& block, BlockState& state) {
+    std::fill(state.weight.begin(), state.weight.end(), 0);
+    std::fill(state.split.begin(), state.split.end(), 0);
+    std::vector<ValueId> inputs;
+    for (ValueId id = 0; id < block.nodes.size(); ++id) {
+      if (!state.marked[id]) continue;
+      if (!Charge(1)) return false;
+      if (Atom(block, id) || SsaCopySource(block.nodes, id) != id) continue;
+      std::uint32_t weight = 1;
+      ValueId heaviest = id;
+      Inputs(block, id, inputs);
+      for (auto input : inputs) {
+        input = SsaCopySource(block.nodes, input);
+        if (input >= block.nodes.size() || Named(block, input)) continue;
+        weight += state.weight[input];
+        if (heaviest == id || state.weight[input] > state.weight[heaviest]) heaviest = input;
+      }
+
+      if (weight > kInlineOperators && heaviest != id && state.weight[heaviest] > 1) {
+        state.split[heaviest] = 1;
+        weight -= state.weight[heaviest];
+      }
+
+      state.weight[id] = weight;
+    }
+
+    return true;
+  }
+
   // Storage is live at a block's end when a successor reads it, passes it on,
   // or control leaves where the declared convention lets it be observed.
   bool Liveness() {
@@ -523,7 +564,9 @@ class Lister {
     // A zero extension keeps its operand's value, so it reads as the operand.
     if (op == Op::constant || op == Op::image_address || op == Op::read || op == Op::zext)
       return false;
-    return RoleOf(block, id) == Role::effect || states_[slot_].uses[id] > 1;
+    const auto& state = states_[slot_];
+    return RoleOf(block, id) == Role::effect || state.uses[id] > 1 ||
+           (id < state.split.size() && state.split[id]);
   }
 
   std::string Operand(const SsaBlock& block, ValueId id) const {
@@ -901,8 +944,8 @@ class Lister {
         return Control(block);
       }
 
-      if (!Line(head) || !Mark(slot, reads_entry)) return false;
       auto& state = states_[slot];
+      if (!Line(head) || !Mark(slot, reads_entry) || !Weigh(block, state)) return false;
       for (ValueId id = 0; id < block.nodes.size(); ++id) {
         if (!state.marked[id] || !Named(block, id)) continue;
         const auto& node = block.nodes[id];

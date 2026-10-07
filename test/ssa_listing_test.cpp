@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <string>
 #include <vector>
@@ -68,6 +69,24 @@ constexpr std::array<std::pair<std::uint64_t, std::uint32_t>, 16> kOverwrittenWo
      {0x134, 0xd65f03c0},
      {0x138, 0xd65f03c0},
      {0x13c, 0xd65f03c0}}};
+
+// Four rounds of x8 = (x8 ^ byte i of x1) * x2, the shape of FNV-1a. Each
+// round's value is used once, by the next.
+//   ubfx x9,x1,#8i,#8 ; eor x8,x8,x9 ; mul x8,x8,x2   (i = 0..3) ; ret
+constexpr std::array<std::pair<std::uint64_t, std::uint32_t>, 13> kChainWords{
+    {{0x100, 0xd3401c29},
+     {0x104, 0xca090108},
+     {0x108, 0x9b027d08},
+     {0x10c, 0xd3483c29},
+     {0x110, 0xca090108},
+     {0x114, 0x9b027d08},
+     {0x118, 0xd3505c29},
+     {0x11c, 0xca090108},
+     {0x120, 0x9b027d08},
+     {0x124, 0xd3587c29},
+     {0x128, 0xca090108},
+     {0x12c, 0x9b027d08},
+     {0x130, 0xd65f03c0}}};
 
 std::optional<SsaGraph> Built(std::span<const std::uint64_t> entries, Budget& budget,
                               std::span<const std::pair<std::uint64_t, std::uint32_t>> words,
@@ -271,6 +290,26 @@ TEST(SsaListing, AValueKeptAcrossACallReadsInline) {
   const auto result = ListSsa(*graph, {names, at_call, at_return}, budget);
   ASSERT_TRUE(result.text);
   EXPECT_NE(result.text->find("    x19 = (x0 + 1)\n"), std::string::npos) << *result.text;
+}
+
+TEST(SsaListing, BreaksALongSingleUseChainOneStepPerLine) {
+  const std::array<std::uint64_t, 1> entries{0x100};
+  const auto text = Listing(entries, {}, kChainWords);
+  std::vector<std::string> lines;
+  for (std::size_t at = 0, end; at < text.size(); at = end + 1) {
+    end = text.find('\n', at);
+    if (end == std::string::npos) end = text.size();
+    const auto line = text.substr(at, end - at);
+    if (line.find(" = ") != std::string::npos) lines.push_back(line);
+  }
+
+  // Inlined whole, the four rounds would be one line holding four products.
+  // Split along the chain, each line holds one round.
+  ASSERT_EQ(lines.size(), 4U) << text;
+  for (const auto& line : lines) {
+    EXPECT_EQ(std::count(line.begin(), line.end(), '*'), 1) << line;
+    EXPECT_EQ(std::count(line.begin(), line.end(), '^'), 1) << line;
+  }
 }
 
 }  // namespace
