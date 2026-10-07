@@ -1241,6 +1241,26 @@ TEST(A64Decode, BitfieldAliasesExecuteSignedWrappedAndPreservedDestinationCases)
   }
 }
 
+TEST(A64Decode, UnsignedBitfieldExtractLiftsAsAShiftNotARotation) {
+  // ubfx x0,x1,#8,#12 never lets rotated bits past its mask, so it reads as
+  // (x1 >> 8) & 0xfff. ubfiz x0,x1,#8,#12 places bits rather than extracting
+  // them and still needs the rotation.
+  const auto shifts = [](std::uint32_t word) {
+    const auto result = LiftWord(word);
+    EXPECT_TRUE(result.group);
+    unsigned left = 0, right = 0;
+    if (result.group)
+      for (const auto& node : result.group->nodes()) {
+        left += node.op == ir::Op::shl;
+        right += node.op == ir::Op::lshr;
+      }
+    return std::pair{left, right};
+  };
+
+  EXPECT_EQ(shifts(0xd3484c20), (std::pair{0U, 1U}));
+  EXPECT_EQ(shifts(0xd3782c20), (std::pair{1U, 1U}));
+}
+
 TEST(A64Decode, BitfieldRegister31IsAlwaysZeroRatherThanStackPointer) {
   for (unsigned opc = 0; opc < 3; ++opc) {
     for (const unsigned width : {32U, 64U}) {

@@ -684,8 +684,12 @@ DecodeResult Decode(std::uint64_t address, std::array<std::uint8_t, 4> bytes, Bu
       }
 
       const auto mask = wmask & tmask;
-      const auto rotated = lift.Shift(value, width, 3, immr);
-      result = lift.Add(Op::bit_and, width, rotated, lift.Constant(width, mask));
+
+      // UBFX: the bits the rotation brings round land at or above width - immr,
+      // above the mask's top bit imms - immr, so a plain shift reads the same.
+      const auto aligned = opc == 2 && imms >= immr ? lift.Shift(value, width, 1, immr)
+                                                    : lift.Shift(value, width, 3, immr);
+      result = lift.Add(Op::bit_and, width, aligned, lift.Constant(width, mask));
       if (opc == 1) {
         const auto preserved =
             lift.Add(Op::bit_and, width, lift.Read(rd, width), lift.Constant(width, ~mask));
