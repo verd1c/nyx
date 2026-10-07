@@ -1,4 +1,4 @@
-# Nyx
+# Nyx Compiler Framework
 
 Nyx is a toy project set of libraries for binary lifting and de-obfuscation. It lifts machine code into its own intermediate language (`NYXIL`), de-obfuscates it, simplifies it, and allows for re-compilation or analysis.
 
